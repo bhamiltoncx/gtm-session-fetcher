@@ -806,6 +806,10 @@ static GTMSessionFetcherTestBlock _Nullable gGlobalTestBlock;
     }
   }
 
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherWillSendNetworkRequest:self];
+  }
+
   // finally, start the connection
   NSURLSessionTask *newSessionTask;
   BOOL needsDataAccumulator = NO;
@@ -953,6 +957,10 @@ static GTMSessionFetcherTestBlock _Nullable gGlobalTestBlock;
     // and we don't want to post a start notification after a premature finish
     // of the session task.
     [newSessionTask resume];
+  }
+
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherDidSendNetworkRequest:self];
   }
 }
 
@@ -1751,6 +1759,9 @@ NSData *_Nullable GTMDataFromInputStream(NSInputStream *inputStream, NSError **o
 
 - (void)authorizeRequest {
   GTMSessionCheckNotSynchronized(self);
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherWillAuthorize:self];
+  }
 
   id authorizer = self.authorizer;
   // Prefer the block-based implementation. This *is* a change in behavior, but if authorizers
@@ -1786,6 +1797,10 @@ NSData *_Nullable GTMDataFromInputStream(NSInputStream *inputStream, NSError **o
               request:(nullable NSMutableURLRequest *)authorizedRequest
     finishedWithError:(nullable NSError *)error {
   GTMSessionCheckNotSynchronized(self);
+
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherDidAuthorize:self error:error];
+  }
 
   if (error != nil) {
     // We can't fetch without authorization
@@ -2031,6 +2046,11 @@ NSData *_Nullable GTMDataFromInputStream(NSInputStream *inputStream, NSError **o
 
 // External stop method
 - (void)stopFetching {
+  NSArray<id<GTMFetcherObserverProtocol>> *observers = _service.observers;
+  for (id<GTMFetcherObserverProtocol> observer in observers) {
+    [observer fetcherWillCancel:self];
+  }
+
   @synchronized(self) {
     GTMSessionMonitorSynchronized(self);
 
@@ -2039,6 +2059,10 @@ NSData *_Nullable GTMDataFromInputStream(NSInputStream *inputStream, NSError **o
     _userStoppedFetching = YES;
   }  // @synchronized(self)
   [self stopFetchReleasingCallbacks:!self.stopFetchingTriggersCompletionHandler];
+
+  for (id<GTMFetcherObserverProtocol> observer in observers) {
+    [observer fetcherDidCancel:self];
+  }
 }
 
 // Cancel the fetch of the URL that's currently in progress.
@@ -2315,6 +2339,11 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
     willPerformHTTPRedirection:(NSHTTPURLResponse *)redirectResponse
                     newRequest:(NSURLRequest *)redirectRequest
              completionHandler:(void (^)(NSURLRequest *_Nullable))handler {
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherWillHandleRedirect:self
+                       redirectResponse:redirectResponse
+                             newRequest:redirectRequest];
+  }
   [self setSessionTask:task];
   GTMSESSION_LOG_DEBUG_VERBOSE(
       @"%@ %p URLSession:%@ task:%@ willPerformHTTPRedirection:%@ newRequest:%@", [self class],
@@ -2368,6 +2397,9 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
     [self updateMutableRequest:[redirectRequest mutableCopy]];
   }
   handler(redirectRequest);
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherDidHandleRedirect:self newRequest:redirectRequest];
+  }
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -2701,6 +2733,13 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
                                               error:(nullable NSError *)error
                                         mayDecorate:(BOOL)mayDecorate
                              shouldReleaseCallbacks:(BOOL)shouldReleaseCallbacks {
+  NSArray<id<GTMFetcherObserverProtocol>> *observers = _service.observers;
+  if (self.retryCount > 0) {
+    for (id<GTMFetcherObserverProtocol> observer in observers) {
+      [observer fetcherDidRetry:self data:data error:error];
+    }
+  }
+
   if (mayDecorate && [_service respondsToSelector:@selector(decorators)]) {
     NSArray<id<GTMFetcherDecoratorProtocol>> *decorators = _service.decorators;
     if (decorators.count) {
@@ -2736,10 +2775,19 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
   }
 
   if (handler) {
+    for (id<GTMFetcherObserverProtocol> observer in observers) {
+      [observer fetcherWillInvokeCompletionHandler:self data:data error:error];
+    }
+
     [self invokeOnCallbackQueue:callbackQueue
                afterUserStopped:NO
                           block:^{
                             handler(data, error);
+                            for (id<GTMFetcherObserverProtocol> observer in observers) {
+                              [observer fetcherDidInvokeCompletionHandler:self
+                                                                     data:data
+                                                                    error:error];
+                            }
 
                             // Post a notification, primarily to allow code to collect responses for
                             // testing.
@@ -3197,6 +3245,12 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
   }
 #endif  // !STRIP_GTM_FETCH_LOGGING
 
+  if (fetchSucceeded || !shouldRetry) {
+    for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+      [observer fetcherWillFinish:self error:error];
+    }
+  }
+
   @synchronized(self) {
     GTMSessionMonitorSynchronized(self);
 
@@ -3300,6 +3354,9 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
                                           mayDecorate:YES
                                shouldReleaseCallbacks:shouldRelease];
     [self stopFetchReleasingCallbacks:NO];
+    for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+      [observer fetcherDidFinish:self data:downloadedData error:error];
+    }
   }
 
 #if !STRIP_GTM_FETCH_LOGGING
@@ -3485,6 +3542,10 @@ static _Nullable id<GTMUIApplicationProtocol> gSubstituteUIApp;
   // be created.
   [self endBackgroundTask];
 #endif  // GTM_BACKGROUND_TASK_FETCHING
+
+  for (id<GTMFetcherObserverProtocol> observer in _service.observers) {
+    [observer fetcherWillRetry:self];
+  }
 
   @synchronized(self) {
     GTMSessionMonitorSynchronized(self);

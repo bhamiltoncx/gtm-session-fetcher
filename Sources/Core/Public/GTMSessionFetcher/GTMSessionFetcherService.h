@@ -164,6 +164,18 @@ extern NSString *const kGTMSessionFetcherServiceSessionKey;
 
 - (void)stopAllFetchers;
 
+// All observers added to the service.
+@property(atomic, readonly, strong, nullable) NSArray<id<GTMFetcherObserverProtocol>> *observers;
+
+// Holds a weak reference to `observer`. When creating a fetcher via
+// `-fetcherWithRequest:fetcherClass:`, each registered `observer` can inspect the fetcher's request
+// before it starts and at various points during its lifetime. Observers are invoked in the order
+// in which they are passed to this method.
+- (void)addObserver:(id<GTMFetcherObserverProtocol>)observer;
+
+// Removes a `observer` previously passed to `-removeObserver:`.
+- (void)removeObserver:(id<GTMFetcherObserverProtocol>)observer;
+
 // All decorators added to the service.
 @property(atomic, readonly, strong, nullable) NSArray<id<GTMFetcherDecoratorProtocol>> *decorators;
 

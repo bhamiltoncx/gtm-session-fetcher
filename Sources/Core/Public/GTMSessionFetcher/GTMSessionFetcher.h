@@ -604,6 +604,80 @@ NSData *_Nullable GTMDataFromInputStream(NSInputStream *inputStream, NSError **o
 }  // extern "C"
 #endif
 
+// Allows observing a request as it is created and as it invokes its callbacks.
+//
+// Observer methods must be thread-safe, as they might be invoked on any queue.
+//
+// Observers must treat `fetcher` as read-only and not manipulate its properties.
+@protocol GTMFetcherObserverProtocol <NSObject>
+
+// Invoked just before a `GTMSessionFetcher` is created.
+- (void)fetcherWillBeCreatedWithRequest:(NSURLRequest *)request;
+
+// Invoked just after a `GTMSessionFetcher` is created.
+- (void)fetcherWasCreated:(GTMSessionFetcher *)fetcher;
+
+// Invoked just before a `GTMSessionFetcher` performs authorization.
+- (void)fetcherWillAuthorize:(GTMSessionFetcher *)fetcher;
+
+// Invoked just after a `GTMSessionFetcher` finishes authorization.
+- (void)fetcherDidAuthorize:(GTMSessionFetcher *)fetcher error:(nullable NSError *)error;
+
+// Invoked just before a `GTMSessionFetcher` retries a fetch.
+- (void)fetcherWillRetry:(GTMSessionFetcher *)fetcher;
+
+// Invoked just after a `GTMSessionFetcher` retries a fetch.
+- (void)fetcherDidRetry:(GTMSessionFetcher *)fetcher
+                   data:(nullable NSData *)data
+                  error:(nullable NSError *)error;
+
+// Invoked just before a `GTMSessionFetcher` sends its network request.
+- (void)fetcherWillSendNetworkRequest:(GTMSessionFetcher *)fetcher;
+
+// Invoked just after a `GTMSessionFetcher` sends its network request.
+- (void)fetcherDidSendNetworkRequest:(GTMSessionFetcher *)fetcher;
+
+// Invoked just before a `GTMSessionFetcher` handles a redirect.
+- (void)fetcherWillHandleRedirect:(GTMSessionFetcher *)fetcher
+                 redirectResponse:(NSHTTPURLResponse *)redirectResponse
+                       newRequest:(NSURLRequest *)redirectRequest;
+
+// Invoked just after a `GTMSessionFetcher` handles a redirect.
+- (void)fetcherDidHandleRedirect:(GTMSessionFetcher *)fetcher
+                      newRequest:(NSURLRequest *)redirectRequest;
+
+// Invoked just before a `GTMSessionFetcher` sends its network request.
+- (void)fetcherWillSendNetworkRequest:(GTMSessionFetcher *)fetcher;
+
+// Invoked just after a `GTMSessionFetcher` sends its network request.
+- (void)fetcherDidSendNetworkRequest:(GTMSessionFetcher *)fetcher
+                                data:(nullable NSData *)data
+                               error:(nullable NSError *)error;
+
+- (void)fetcherWillFinish:(GTMSessionFetcher *)fetcher error:(nullable NSError *)error;
+
+- (void)fetcherDidFinish:(GTMSessionFetcher *)fetcher
+                    data:(nullable NSData *)data
+                   error:(nullable NSError *)error;
+
+// Invoked just before a `GTMSessionFetcher` invokes a fetcher's completion handler.
+- (void)fetcherWillInvokeCompletionHandler:(GTMSessionFetcher *)fetcher
+                                      data:(nullable NSData *)data
+                                     error:(nullable NSError *)error;
+
+// Invoked just after a `GTMSessionFetcher` invokes a fetcher's completion handler.
+- (void)fetcherDidInvokeCompletionHandler:(GTMSessionFetcher *)fetcher
+                                     data:(nullable NSData *)data
+                                    error:(nullable NSError *)error;
+
+// Invoked just before a `GTMSessionFetcher` is cancelled via `-stopFetching`.
+- (void)fetcherWillCancel:(GTMSessionFetcher *)fetcher;
+
+// Invoked just after a `GTMSessionFetcher` is cancelled via `-stopFetching`.
+- (void)fetcherDidCancel:(GTMSessionFetcher *)fetcher;
+
+@end
+
 // Completion handler passed to -[GTMFetcherDecoratorProtocol fetcherWillStart:completionHandler:].
 typedef void (^GTMFetcherDecoratorFetcherWillStartCompletionHandler)(NSURLRequest *_Nullable,
                                                                      NSError *_Nullable);

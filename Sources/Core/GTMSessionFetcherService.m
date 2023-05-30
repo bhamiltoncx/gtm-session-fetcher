@@ -65,6 +65,9 @@ static BOOL gUseStandardUserAgentProvider = NO;
 @property(atomic, strong, readwrite) NSDictionary *delayedFetchersByHost;
 @property(atomic, strong, readwrite) NSDictionary *runningFetchersByHost;
 
+// Ordered collection of id<GTMFetcherObserverProtocol>, held weakly.
+@property(atomic, strong, readonly) NSPointerArray *observersPointerArray;
+
 // Ordered collection of id<GTMFetcherDecoratorProtocol>, held weakly.
 @property(atomic, strong, readonly) NSPointerArray *decoratorsPointerArray;
 
@@ -223,6 +226,10 @@ static BOOL gUseStandardUserAgentProvider = NO;
 
 // Clients may override this method. Clients should not override any other library methods.
 - (id)fetcherWithRequest:(NSURLRequest *)request fetcherClass:(Class)fetcherClass {
+  NSArray<id<GTMFetcherObserverProtocol>> *observers = self.observers;
+  for (id<GTMFetcherObserverProtocol> observer in observers) {
+    [observer fetcherWillBeCreatedWithRequest:request];
+  }
   GTMSessionFetcher *fetcher = [[fetcherClass alloc] initWithRequest:request
                                                        configuration:self.configuration];
   fetcher.callbackQueue = [self serialQueueForNewFetcher:fetcher];
@@ -253,6 +260,10 @@ static BOOL gUseStandardUserAgentProvider = NO;
   fetcher.userAgentProvider = self.userAgentProvider;
   fetcher.testBlock = self.testBlock;
 
+  for (id<GTMFetcherObserverProtocol> observer in observers) {
+    [observer fetcherWasCreated:fetcher];
+  }
+
   return fetcher;
 }
 
@@ -267,6 +278,39 @@ static BOOL gUseStandardUserAgentProvider = NO;
 - (GTMSessionFetcher *)fetcherWithURLString:(NSString *)requestURLString {
   NSURL *url = [NSURL URLWithString:requestURLString];
   return [self fetcherWithURL:url];
+}
+
+- (void)addObserver:(id<GTMFetcherObserverProtocol>)observer {
+  @synchronized(self) {
+    if (!_observersPointerArray) {
+      _observersPointerArray = [NSPointerArray weakObjectsPointerArray];
+    }
+    [_observersPointerArray addPointer:(__bridge void *)observer];
+  }
+}
+
+- (nullable NSArray<id<GTMFetcherObserverProtocol>> *)observers {
+  @synchronized(self) {
+    return _observersPointerArray.allObjects;
+  }
+}
+
+- (void)removeObserver:(id<GTMFetcherObserverProtocol>)observer {
+  @synchronized(self) {
+    NSUInteger i = 0;
+    for (id<GTMFetcherObserverProtocol> observerCandidate in _observersPointerArray) {
+      if (observerCandidate == observer) {
+        break;
+      }
+      ++i;
+    }
+    GTMSESSION_ASSERT_DEBUG(i < _observersPointerArray.count,
+                            @"observer %@ must be passed to -addObserver: before removing",
+                            observer);
+    if (i < _observersPointerArray.count) {
+      [_observersPointerArray removePointerAtIndex:i];
+    }
+  }
 }
 
 - (void)addDecorator:(id<GTMFetcherDecoratorProtocol>)decorator {
